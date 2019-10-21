@@ -1,7 +1,7 @@
 using Parameters
 using PyPlot
 
-const _TOL = 10^(-13)
+const _TOL = 10^(-12)
 
 
 struct Alloc
@@ -17,6 +17,77 @@ Alloc(gridlen::Int64) = Alloc(
         fill(NaN, gridlen),
         zeros(Int64, gridlen)
     )
+
+Alloc(model) = Alloc(
+        fill(NaN, model.gridlen),
+        fill(NaN, model.gridlen),
+        fill(NaN, model.gridlen),
+        zeros(Int64, model.gridlen)
+    )
+
+
+   
+
+    
+function get_d_and_c_fun(gridlen::Int64)
+
+    """
+    Generate a bisection tree from array to be used in the "divide and conquer"
+    algorithm. 
+
+    Returns a tuple of two arrays. First element is the list of the elements in
+    array, excluding the extrema. Second element is an array of tupples with the
+    each of the parents.
+    """
+    function create_tree(array)
+
+        #    Auxiliary function
+        function create_subtree!(
+                tree_list, parents_list, # modified in place
+                array
+            )
+            length = size(array)[1]
+            if length == 2
+                return
+            else
+                parents = (array[1], array[end])
+                halflen = (length + 1)÷2
+                push!(tree_list, array[halflen])
+                push!(parents_list, parents)
+                create_subtree!(tree_list, parents_list, @view array[1:halflen])
+                create_subtree!(tree_list, parents_list, @view array[halflen:end])
+            end 
+        end
+
+        tree_list = eltype(array)[]
+        parents_list = Tuple{eltype(array), eltype(array)}[]
+        create_subtree!(tree_list, parents_list, array)
+        return (tree_list, parents_list)
+    end
+
+    # Given an index i and a tree returns the current index in the three as well 
+    # as the indices of the parents.
+    function d_and_c_index_bounds(i, pol_vector, tree)
+        if i == 1 
+            b_i = 1
+            left_bound = 1
+            right_bound = gridlen
+        elseif i == 2
+            b_i = gridlen 
+            left_bound = pol_vector[1]
+            right_bound = gridlen
+        else
+            index = i - 2
+            b_i = tree[1][index]
+            left_bound = pol_vector[tree[2][index][1]]
+            right_bound = pol_vector[tree[2][index][2]]
+        end 
+        return (b_i, left_bound, right_bound)
+    end
+
+    tree = create_tree(collect(1:gridlen))
+    return ((x, pol) -> d_and_c_index_bounds(x, pol, tree))
+end
 
 
 function dropnames(namedtuple::NamedTuple, set)
@@ -55,17 +126,17 @@ end
 TwoStatesPar = @with_kw (
     R = exp(0.06),
     β = exp(-0.1), 
-    τₕ = 0.15,   # high cost of default
-    τₗ = 0.08,   # low cost of default
+    τH = 0.15,   # high cost of default
+    τL = 0.08,   # low cost of default
     λ = 0.025,  # proba of low cost
     u = (x -> log(x)), 
     u_inv = (x -> exp(x)), 
     δ = 0.25, 
     y = 1.0, 
-    npoints_approx = 1000,
+    npoints_approx = 10000,
     r = R - 1.0,
-    vH = u((1 - τₗ) * y) / (1 - β),
-    vL = u((1 - τₕ) * y) / (1 - β),
+    vH = u((1 - τL) * y) / (1 - β),
+    vL = u((1 - τH) * y) / (1 - β),
     q̅ = 1.0, 
     q̲ = get_q̲(r=r, δ=δ, λ=λ),
     bS_low = get_bS_low(
@@ -79,7 +150,8 @@ TwoStatesPar = @with_kw (
         bmin=0.0, bmax=bB_high, bsaving=bS_low, npoints_approx=npoints_approx
     ), 
     gridlen = length(b_grid), 
-    bS_low_loc = findfirst(x -> (x == bS_low), b_grid)
+    bS_low_loc = findfirst(x -> (x == bS_low), b_grid),
+    d_and_c_fun = get_d_and_c_fun(gridlen)
 )
 
 
@@ -278,11 +350,8 @@ end
 
 
 function create_bor_eqm(model)
-    @unpack vL, gridlen = model
-
-    bor_eqm = construct_bor_path(model, gridlen, vL)
+    bor_eqm = construct_bor_path(model, model.gridlen, model.vL)
     @assert bor_eqm.valid_until == 1 
-
     return bor_eqm.alloc
 end
 
@@ -298,7 +367,7 @@ function create_hyb_eqm(model)
     while true
         v = u(y - r * b_grid[loc]) / (1 - β)
         if v < bor.alloc.v[loc]
-            hybrid_loc = loc
+            hybrid_loc = loc + 1
             break
         end
         (loc <= bor.valid_until) && break
@@ -333,18 +402,21 @@ function create_hyb_eqm(model)
 end 
 
 
-function iterate_v!(alloc_new, model, alloc)
+function iterate_v_and_pol!(alloc_new, model, alloc)
     # this could be improved using the divide and conquer algorithm 
-    @unpack gridlen, b_grid = model
+    @unpack b_grid, d_and_c_fun = model
     v_tmp = 0.0
     v_max = 0.0
     b_pol = 0
     prev_pol = 1
-    for i in 1:gridlen
+    
+    for iter in eachindex(b_grid)
         first_valid = true
         v_max = NaN
-        b_pol = 0
-        for j in prev_pol:gridlen
+        i, left_bound, right_bound = d_and_c_fun(iter, alloc_new.b_pol_i)
+        b_pol = i # if not feasible -- the policy is the current state
+                  # as all higher states are also not feasible 
+        for j in left_bound:right_bound
             c = c_budget(model; b=b_grid[i], b_prime=b_grid[j], q=alloc.q[j])
             if c >= 0
                 v_tmp = v_bellman(model; c=c, v_prime=alloc.v[j])
@@ -356,20 +428,68 @@ function iterate_v!(alloc_new, model, alloc)
             end
         end
         alloc_new.v[i] = v_max
+        alloc_new.repay_prob[i] = get_repay_prob(model, v_max)
         alloc_new.b_pol_i[i] = b_pol
-        prev_pol = max(b_pol, 1)
     end
 end
 
 
 function iterate_q!(alloc_new, model, alloc)
-    @unpack gridlen = model
-    for i in 1:gridlen
-        repay_prob = get_repay_prob(model, alloc.v[i])
+    for i in eachindex(model.b_grid)
+        repay_prob = get_repay_prob(model, alloc_new.v[i])
         alloc_new.q[i] = q_bellman(
             model; 
             repay_prob=repay_prob, 
-            q_prime=alloc.q[alloc.b_pol_i[i]]
+            q_prime=alloc.q[alloc_new.b_pol_i[i]]
         )
     end
+end
+
+
+function distance(new, old)
+    error = 0.0
+    for i in eachindex(new.v)
+        error = max(error, abs(new.v[i] - old.v[i]) + abs(new.q[i] - old.q[i]))
+    end 
+    return error
+end
+
+
+function iterate_backwards(model; tol=10.0^(-12), max_iters=1000)
+    a_new = Alloc(model)
+    a_old = Alloc(
+        zero(model.b_grid),
+        zero(model.b_grid),
+        zero(model.b_grid),
+        ones(Int64, model.gridlen)
+    )
+    counter = 1
+    while true
+        iterate_v_and_pol!(a_new, model, a_old)
+        iterate_q!(a_new, model, a_old)
+        error = distance(a_new, a_old)
+        if  error < tol
+            println("Converged.")
+            break
+        end
+        counter+=1
+        if mod(counter, 10) == 0 
+            println("Iter ", counter, ". Distance=", error) 
+        end 
+        if counter > max_iters 
+            println("Did not converged. Distance=", error)
+            break
+        end
+        a_new, a_old = a_old, a_new
+    end
+    return a_new
+end 
+
+
+function plot_pol(alloc, model; new_figure=true)
+    if new_figure
+        figure()
+    end
+    plot(model.b_grid, model.b_grid[alloc.b_pol_i])
+    plot(model.b_grid[alloc.b_pol_i], model.b_grid[alloc.b_pol_i], "--")
 end
