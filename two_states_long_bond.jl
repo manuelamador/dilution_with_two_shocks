@@ -235,7 +235,7 @@ function construct_path(model, loc, v_at_loc, Δ, alloc)
                 v_prime = alloc.v[i]
                 q = alloc.q[i]
                 repay_prob = alloc.repay_prob[i]
-                c = c_budget(model, b=b, b_prime=b_prime, q=q)
+                c = c_budget(model; b=b, b_prime=b_prime, q=q)
                 if c > 0
                     v_tmp = v_bellman(model; c=c, v_prime=v_prime)
                     if (first_valid) || (v_tmp > v_max)
@@ -455,7 +455,7 @@ function distance(new, old)
 end
 
 
-function iterate_backwards(model; tol=10.0^(-12), max_iters=1000)
+function iterate_backwards(model; tol=10.0^(-12), max_iters=10000)
     a_new = Alloc(model)
     a_old = Alloc(
         zero(model.b_grid),
