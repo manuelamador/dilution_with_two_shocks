@@ -397,7 +397,7 @@ end
 
 
 function iterate_v_and_pol!(alloc_new, model, alloc)
-    # this could be improved using the divide and conquer algorithm 
+    # Iterate the value function and update the 
     @unpack b_grid, d_and_c_fun = model
     v_tmp = 0.0
     v_max = 0.0
@@ -429,11 +429,12 @@ end
 
 
 function iterate_q!(alloc_new, model, alloc)
+    # Uses the values and policies in `alloc_new` together with 
+    # the price in `alloc` to update the price in `alloc_new`.
     for i in eachindex(model.b_grid)
-        repay_prob = get_repay_prob(model, alloc_new.v[i])
         alloc_new.q[i] = q_bellman(
             model; 
-            repay_prob=repay_prob, 
+            repay_prob=alloc_new.repay_prob[i], 
             q_prime=alloc.q[alloc_new.b_pol_i[i]]
         )
     end
