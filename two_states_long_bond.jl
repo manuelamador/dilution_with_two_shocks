@@ -26,9 +26,6 @@ Alloc(model) = Alloc(
     )
 
 
-   
-
-    
 function get_d_and_c_fun(gridlen::Int64)
 
     """
@@ -139,12 +136,9 @@ TwoStatesPar = @with_kw (
     vL = u((1 - τH) * y) / (1 - β),
     q̅ = 1.0, 
     q̲ = get_q̲(r=r, δ=δ, λ=λ),
-    bS_low = get_bS_low(
-        y=y, u_inv=u_inv, β=β, r=r, vH=vH
-    ),
+    bS_low = get_bS_low(y=y, u_inv=u_inv, β=β, r=r, vH=vH),
     bB_high = get_bB_high(
-        y=y, u_inv=u_inv, β=β, r=r, λ=λ, δ=δ,
-        vH=vH, vL=vL
+        y=y, u_inv=u_inv, β=β, r=r, λ=λ, δ=δ, vH=vH, vL=vL
     ),
     b_grid = create_b_grid(
         bmin=0.0, bmax=bB_high, bsaving=bS_low, npoints_approx=npoints_approx
