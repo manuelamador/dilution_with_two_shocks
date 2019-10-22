@@ -5,8 +5,8 @@ const _TOL = 10^(-12)
 
 
 @with_kw struct TwoStatesModel{F1, F2, F3} @deftype Float64
-    R = exp(0.06)
-    β = exp(-0.1) 
+    R = 1.05 
+    β = 0.91 
     τH = 0.15
     τL = 0.08
     λ = 0.025
@@ -32,6 +32,15 @@ const _TOL = 10^(-12)
     d_and_c_fun::F3 = get_d_and_c_fun(gridlen)
 end
 
+
+function Base.show(io::IO, model::TwoStatesModel)
+    @unpack R, β, τH, τL, λ, δ, y, gridlen = model
+
+    print(io, "R=", R, " β=", β, " τH=", τH, " τL=", τL, 
+            " λ=", λ, " δ=", δ, " y=", y, " points=", gridlen)    
+end
+
+
 # This structs stores an allocation with a reference to the model that 
 # generated. 
 struct Alloc{P}
@@ -51,6 +60,12 @@ Alloc(model::TwoStatesModel) = Alloc(
         model
     )
 
+function Base.show(io::IO, alloc::Alloc)
+    @unpack R, β, τH, τL, λ, δ, y, gridlen = alloc.model
+
+    print(io, "Alloc for model: ")
+    show(io, alloc.model)   
+end
 #
 # Functions related to the constructor of TwoStateModel
 #
@@ -81,8 +96,12 @@ function get_d_and_c_fun(gridlen::Int64)
                 halflen = (length + 1)÷2
                 push!(tree_list, array[halflen])
                 push!(parents_list, parents)
-                create_subtree!(tree_list, parents_list, @view array[1:halflen])
-                create_subtree!(tree_list, parents_list, @view array[halflen:end])
+                create_subtree!(
+                    tree_list, parents_list, @view array[1:halflen]
+                )
+                create_subtree!(
+                    tree_list, parents_list, @view array[halflen:end]
+                )
             end 
         end
 
