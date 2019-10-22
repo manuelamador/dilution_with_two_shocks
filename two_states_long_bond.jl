@@ -385,9 +385,10 @@ end
 
 # Returns a hybrid equilibrium allocation. Throws error if it can't. 
 function create_hyb_eqm(model)
-    @unpack vL, gridlen, bS_low_loc, u, r, β, b_grid, y = model 
+    @unpack vL, vH, gridlen, bS_low_loc, u, r, β, b_grid, y = model 
     bor = construct_bor_path(model, gridlen, vL)
-    loc = bS_low_loc
+    loc = findfirst(x -> x < vH, bor.alloc.v) - 1
+    println(loc, " ", bS_low_loc)
     @assert  u(y - r * b_grid[loc]) / (1 - β) >= bor.alloc.v[loc]
     hybrid_loc = 0
     while true
@@ -541,4 +542,6 @@ function plot_pol(alloc; new_figure=true)
         alloc.model.b_grid[alloc.b_pol_i], 
         "--"
     )
+    loc= findfirst(x -> x < alloc.model.vH, alloc.v) - 1
+    axvline(alloc.model.b_grid[loc]; lw=1, color="gray")
 end
