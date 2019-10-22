@@ -46,8 +46,10 @@ end
 function Base.show(io::IO, model::TwoStatesModel)
     @unpack R, β, τH, τL, λ, δ, y, gridlen = model
 
-    print(io, "R=", R, " β=", β, " τH=", τH, " τL=", τL, 
-            " λ=", λ, " δ=", δ, " y=", y, " points=", gridlen)    
+    print(
+        io, "R=", R, " β=", β, " τH=", τH, " τL=", τL, 
+        " λ=", λ, " δ=", δ, " y=", y, " points=", gridlen
+    )    
 end
 
 
@@ -63,12 +65,12 @@ end
 
 
 Alloc(model::TwoStatesModel) = Alloc(
-        fill(NaN, model.gridlen),
-        fill(NaN, model.gridlen),
-        fill(NaN, model.gridlen),
-        zeros(Int64, model.gridlen),
-        model
-    )
+    fill(NaN, model.gridlen),
+    fill(NaN, model.gridlen),
+    fill(NaN, model.gridlen),
+    zeros(Int64, model.gridlen),
+    model
+)
 
 function Base.show(io::IO, alloc::Alloc)
     @unpack R, β, τH, τL, λ, δ, y, gridlen = alloc.model
@@ -95,9 +97,9 @@ function get_d_and_c_fun(gridlen::Int64)
 
         #    Auxiliary function
         function create_subtree!(
-                tree_list, parents_list, # modified in place
-                array
-            )
+            tree_list, parents_list, # modified in place
+            array
+        )
             length = size(array)[1]
             if length == 2
                 return
@@ -318,21 +320,21 @@ end
 
 
 function construct_sav_path(
-        model, 
-        loc, 
-        v_at_loc; 
-        alloc=Alloc(model)
-    )
+    model, 
+    loc, 
+    v_at_loc; 
+    alloc=Alloc(model)
+)
     construct_path!(alloc, model, loc, v_at_loc, 1)
 end 
 
 
 function construct_bor_path(
-        model, 
-        loc, 
-        v_at_loc; 
-        alloc=Alloc(model)
-    )
+    model, 
+    loc, 
+    v_at_loc; 
+    alloc=Alloc(model)
+)
     construct_path!(alloc, model, loc, v_at_loc, -1)
 end 
 
