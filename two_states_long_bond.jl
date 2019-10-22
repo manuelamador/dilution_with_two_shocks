@@ -1,9 +1,18 @@
 using Parameters
 using PyPlot
 
-const _TOL = 10^(-12)
+const _TOL = 10.0^(-12)
+const _MAX_ITERS = 10000 
+
+########################################################################
+#
+# Structs and constructors
+# 
+#
 
 
+# `TwoStatesModel` contains the basic parameters of the model as well 
+# as some other values and the debt grid. 
 @with_kw struct TwoStatesModel{F1, F2, F3} @deftype Float64
     R = 1.05 
     β = 0.91 
@@ -15,6 +24,7 @@ const _TOL = 10^(-12)
     δ = 0.25
     y = 1.0
     npoints_approx::Int64 = 10000
+    # Generated values 
     r = R - 1.0
     vH = u((1 - τL) * y) / (1 - β)
     vL = u((1 - τH) * y) / (1 - β)
@@ -41,7 +51,7 @@ function Base.show(io::IO, model::TwoStatesModel)
 end
 
 
-# This structs stores an allocation with a reference to the model that 
+# `Alloc` stores an allocation together with a reference to the model that 
 # generated. 
 struct Alloc{P}
     v::Array{Float64, 1}
@@ -66,10 +76,10 @@ function Base.show(io::IO, alloc::Alloc)
     print(io, "Alloc for model: ")
     show(io, alloc.model)   
 end
+
 #
 # Functions related to the constructor of TwoStateModel
 #
-
 
 function get_d_and_c_fun(gridlen::Int64)
 
@@ -162,8 +172,9 @@ function create_b_grid(;bmin=0.0, bmax, bsaving, npoints_approx)
     return b_grid
 end
 
-######################################################
-# Functions on prices, values and budget
+########################################################################
+#
+# Helper functions on prices, values, repayments and consumption
 #
 
 function q_ss(model, repay_prob)
@@ -214,7 +225,13 @@ end
 #
 
 
-function construct_path(model, loc, v_at_loc, Δ, alloc)
+# Generic function that construct a path starting at `loc` with 
+# value `v_at_loc` in direction `Δ` and stores the solution in alloc 
+# as well as returning a tuple. 
+#
+# `Δ=-1` corresponds to a borrowing path, and `Δ=1` corresponds to
+# a saving path 
+function construct_path!(alloc, model, loc, v_at_loc, Δ)
 
     function assign_values!(alloc, iter, v, q, repay_prob, b_prime)
         # auxiliary assign function 
@@ -306,7 +323,7 @@ function construct_sav_path(
         v_at_loc; 
         alloc=Alloc(model)
     )
-    construct_path(model, loc, v_at_loc, 1, alloc)
+    construct_path!(alloc, model, loc, v_at_loc, 1)
 end 
 
 
@@ -316,10 +333,11 @@ function construct_bor_path(
         v_at_loc; 
         alloc=Alloc(model)
     )
-    construct_path(model, loc, v_at_loc, -1, alloc)
+    construct_path!(alloc, model, loc, v_at_loc, -1)
 end 
 
 
+# Return a saving equilibrium allocation. Throws error if it can't. 
 function create_sav_eqm(model)
     @unpack bS_low_loc, vH, vL, gridlen = model
 
@@ -368,6 +386,7 @@ function create_sav_eqm(model)
 end
 
 
+# Returns a borrowing equilibrium allocation. Throws error if it can't. 
 function create_bor_eqm(model)
     bor_eqm = construct_bor_path(model, model.gridlen, model.vL)
     @assert bor_eqm.valid_until == 1 
@@ -375,6 +394,7 @@ function create_bor_eqm(model)
 end
 
 
+# Returns a hybrid equilibrium allocation. Throws error if it can't. 
 function create_hyb_eqm(model)
     @unpack vL, gridlen, bS_low_loc, u, r, β, b_grid, y = model 
     bor = construct_bor_path(model, gridlen, vL)
@@ -430,6 +450,7 @@ end
 #
 
 
+# Uses divide and conquer to iterate the value and policy functions. 
 function iterate_v_and_pol!(alloc_new, alloc)
     # Iterate the value function and update the 
     @unpack b_grid, d_and_c_fun = alloc.model
@@ -467,9 +488,9 @@ function iterate_v_and_pol!(alloc_new, alloc)
 end
 
 
+# Uses the values and policies in `alloc_new` together with 
+# the price in `alloc` to update the price in `alloc_new`.
 function iterate_q!(alloc_new, alloc)
-    # Uses the values and policies in `alloc_new` together with 
-    # the price in `alloc` to update the price in `alloc_new`.
     for i in eachindex(alloc.model.b_grid)
         alloc_new.q[i] = q_bellman(
             alloc.model; 
@@ -480,6 +501,7 @@ function iterate_q!(alloc_new, alloc)
 end
 
 
+# Helper distance function 
 function distance(new, old)
     error = 0.0
     for i in eachindex(new.v)
@@ -489,7 +511,9 @@ function distance(new, old)
 end
 
 
-function iterate_backwards(model; tol=10.0^(-12), max_iters=10000)
+# Iterate value and price starting from values of zero. This should 
+# correspond to iterating backwards from a final finite T.
+function iterate_backwards(model; tol=10.0^(-12), max_iters=_MAX_ITERS)
     a_new = Alloc(model)
     a_old = Alloc(
         zero(model.b_grid),
@@ -520,6 +544,10 @@ function iterate_backwards(model; tol=10.0^(-12), max_iters=10000)
     return a_new
 end 
 
+########################################################################
+#
+# Plotting functions 
+#
 
 function plot_pol(alloc; new_figure=true)
     if new_figure
