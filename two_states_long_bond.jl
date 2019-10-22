@@ -4,26 +4,56 @@ using PyPlot
 const _TOL = 10^(-12)
 
 
-struct Alloc
+@with_kw struct TwoStatesModel{F1, F2, F3} @deftype Float64
+    R = exp(0.06)
+    β = exp(-0.1) 
+    τH = 0.15
+    τL = 0.08
+    λ = 0.025
+    u::F1 = (x -> log(x))
+    u_inv::F2 = (x -> exp(x))
+    δ = 0.25
+    y = 1.0
+    npoints_approx::Int64 = 10000
+    r = R - 1.0
+    vH = u((1 - τL) * y) / (1 - β)
+    vL = u((1 - τH) * y) / (1 - β)
+    q̅ = 1.0
+    q̲ = get_q̲(r=r, δ=δ, λ=λ)
+    bS_low = get_bS_low(y=y, u_inv=u_inv, β=β, r=r, vH=vH)
+    bB_high = get_bB_high(
+        y=y, u_inv=u_inv, β=β, r=r, λ=λ, δ=δ, vH=vH, vL=vL
+    )
+    b_grid::Array{Float64, 1} = create_b_grid(
+        bmin=0.0, bmax=bB_high, bsaving=bS_low, npoints_approx=npoints_approx
+    )
+    gridlen::Int64 = length(b_grid)
+    bS_low_loc::Int64 = findfirst(x -> (x == bS_low), b_grid)
+    d_and_c_fun::F3 = get_d_and_c_fun(gridlen)
+end
+
+# This structs stores an allocation with a reference to the model that 
+# generated. 
+struct Alloc{P}
     v::Array{Float64, 1}
     q::Array{Float64, 1}
     repay_prob::Array{Float64, 1}
     b_pol_i::Array{Int64, 1}
+    model::P    # reference to the parent model
 end 
 
-Alloc(gridlen::Int64) = Alloc(
-        fill(NaN, gridlen),
-        fill(NaN, gridlen),
-        fill(NaN, gridlen),
-        zeros(Int64, gridlen)
+
+Alloc(model::TwoStatesModel) = Alloc(
+        fill(NaN, model.gridlen),
+        fill(NaN, model.gridlen),
+        fill(NaN, model.gridlen),
+        zeros(Int64, model.gridlen),
+        model
     )
 
-Alloc(model) = Alloc(
-        fill(NaN, model.gridlen),
-        fill(NaN, model.gridlen),
-        fill(NaN, model.gridlen),
-        zeros(Int64, model.gridlen)
-    )
+#
+# Functions related to the constructor of TwoStateModel
+#
 
 
 function get_d_and_c_fun(gridlen::Int64)
@@ -87,12 +117,6 @@ function get_d_and_c_fun(gridlen::Int64)
 end
 
 
-function dropnames(namedtuple::NamedTuple, set)
-    out = [p for p in pairs(namedtuple) if !(p[1] in set)]
-    return (; out...)
-end
-
-
 function get_q̲(;r, δ, λ)
     return (r + δ) / ((r + λ) / (1 - λ) + δ)
 end
@@ -119,35 +143,9 @@ function create_b_grid(;bmin=0.0, bmax, bsaving, npoints_approx)
     return b_grid
 end
 
-
-TwoStatesPar = @with_kw (
-    R = exp(0.06),
-    β = exp(-0.1), 
-    τH = 0.15,   # high cost of default
-    τL = 0.08,   # low cost of default
-    λ = 0.025,  # proba of low cost
-    u = (x -> log(x)), 
-    u_inv = (x -> exp(x)), 
-    δ = 0.25, 
-    y = 1.0, 
-    npoints_approx = 10000,
-    r = R - 1.0,
-    vH = u((1 - τL) * y) / (1 - β),
-    vL = u((1 - τH) * y) / (1 - β),
-    q̅ = 1.0, 
-    q̲ = get_q̲(r=r, δ=δ, λ=λ),
-    bS_low = get_bS_low(y=y, u_inv=u_inv, β=β, r=r, vH=vH),
-    bB_high = get_bB_high(
-        y=y, u_inv=u_inv, β=β, r=r, λ=λ, δ=δ, vH=vH, vL=vL
-    ),
-    b_grid = create_b_grid(
-        bmin=0.0, bmax=bB_high, bsaving=bS_low, npoints_approx=npoints_approx
-    ), 
-    gridlen = length(b_grid), 
-    bS_low_loc = findfirst(x -> (x == bS_low), b_grid),
-    d_and_c_fun = get_d_and_c_fun(gridlen)
-)
-
+######################################################
+# Functions on prices, values and budget
+#
 
 function q_ss(model, repay_prob)
     @unpack R, r, δ = model
@@ -191,9 +189,15 @@ function get_repay_prob(model, v)
 end
 
 
+########################################################################
+#
+# Functions that create the saving and borrowing paths
+#
+
+
 function construct_path(model, loc, v_at_loc, Δ, alloc)
 
-    function assign_values(iter, v, q, repay_prob, b_prime)
+    function assign_values!(alloc, iter, v, q, repay_prob, b_prime)
         # auxiliary assign function 
         alloc.v[iter] = v
         alloc.q[iter] = q
@@ -217,8 +221,9 @@ function construct_path(model, loc, v_at_loc, Δ, alloc)
         if iter == loc
             # starting point is stationary
             repay_prob = get_repay_prob(model, v_at_loc)
-            assign_values(
-                iter, v_at_loc, q_ss(model, repay_prob), repay_prob, iter
+            assign_values!(
+                alloc, iter, v_at_loc, q_ss(model, repay_prob), 
+                repay_prob, iter
             )
             prev_pol = iter
         else
@@ -241,8 +246,8 @@ function construct_path(model, loc, v_at_loc, Δ, alloc)
                 end
             end
             if first_valid
-                # nothing is optimal 
-                assign_values(iter, NaN, NaN, NaN, -1)
+                # nothing is optimal -- this debt level is not feasible
+                assign_values!(alloc, iter, NaN, NaN, NaN, -1)
                 valid_until = iter - Δ
                 break
             else
@@ -252,7 +257,7 @@ function construct_path(model, loc, v_at_loc, Δ, alloc)
                     repay_prob=repay_prob, 
                     q_prime=q_prime
                 )
-                assign_values(iter, v_max,  q, repay_prob, new_pol)
+                assign_values!(alloc, iter, v_max,  q, repay_prob, new_pol)
                 prev_pol = new_pol
 
                 # compute the value of staying put
@@ -280,7 +285,7 @@ function construct_sav_path(
         model, 
         loc, 
         v_at_loc; 
-        alloc=Alloc(model.gridlen)
+        alloc=Alloc(model)
     )
     construct_path(model, loc, v_at_loc, 1, alloc)
 end 
@@ -290,7 +295,7 @@ function construct_bor_path(
         model, 
         loc, 
         v_at_loc; 
-        alloc=Alloc(model.gridlen)
+        alloc=Alloc(model)
     )
     construct_path(model, loc, v_at_loc, -1, alloc)
 end 
@@ -318,7 +323,7 @@ function create_sav_eqm(model)
         i += 1
     end 
     # creating the merged arrays with the sav eqm allocation
-    return Alloc(
+    @views return Alloc(
         vcat(
             safe_region.alloc.v[1:bS_low_loc],
             crisis_saving.alloc.v[bS_low_loc + 1:index - 1],
@@ -338,7 +343,8 @@ function create_sav_eqm(model)
             safe_region.alloc.b_pol_i[1:bS_low_loc],
             crisis_saving.alloc.b_pol_i[bS_low_loc + 1:index - 1],
             crisis_borrowing.alloc.b_pol_i[index:end]
-        )
+        ),
+        model
     )
 end
 
@@ -361,7 +367,7 @@ function create_hyb_eqm(model)
     while true
         v = u(y - r * b_grid[loc]) / (1 - β)
         if v < bor.alloc.v[loc]
-            hybrid_loc = loc + 1
+            hybrid_loc = loc + 1 # not sure whether we should add one or not.
             break
         end
         (loc <= bor.valid_until) && break
@@ -375,30 +381,39 @@ function create_hyb_eqm(model)
         u(y - r * b_grid[hybrid_loc]) / (1 - β)
     )
 
-    return Alloc(
-        vcat(
-            safe.alloc.v[1:hybrid_loc],
-            bor.alloc.v[hybrid_loc + 1:end]
-        ),
-        vcat(
-            safe.alloc.q[1:hybrid_loc],
-            bor.alloc.q[hybrid_loc + 1:end]
-        ),
-        vcat(
-            safe.alloc.repay_prob[1:hybrid_loc],
-            bor.alloc.repay_prob[hybrid_loc + 1:end]
-        ),
-        vcat(
-            safe.alloc.b_pol_i[1:hybrid_loc],
-            bor.alloc.b_pol_i[hybrid_loc + 1:end]
+    @views begin
+        return Alloc(
+            vcat(
+                safe.alloc.v[1:hybrid_loc],
+                bor.alloc.v[hybrid_loc + 1:end]
+            ),
+            vcat(
+                safe.alloc.q[1:hybrid_loc],
+                bor.alloc.q[hybrid_loc + 1:end]
+            ),
+            vcat(
+                safe.alloc.repay_prob[1:hybrid_loc],
+                bor.alloc.repay_prob[hybrid_loc + 1:end]
+            ),
+            vcat(
+                safe.alloc.b_pol_i[1:hybrid_loc],
+                bor.alloc.b_pol_i[hybrid_loc + 1:end]
+            ),
+            model
         )
-    )
+    end   
 end 
 
 
-function iterate_v_and_pol!(alloc_new, model, alloc)
+########################################################################
+#
+#  Functions for value and price iteration 
+#
+
+
+function iterate_v_and_pol!(alloc_new, alloc)
     # Iterate the value function and update the 
-    @unpack b_grid, d_and_c_fun = model
+    @unpack b_grid, d_and_c_fun = alloc.model
     v_tmp = 0.0
     v_max = 0.0
     b_pol = 0
@@ -411,9 +426,14 @@ function iterate_v_and_pol!(alloc_new, model, alloc)
         b_pol = i # if not feasible -- the policy is the current state
                   # as all higher states are also not feasible 
         for j in left_bound:right_bound
-            c = c_budget(model; b=b_grid[i], b_prime=b_grid[j], q=alloc.q[j])
+            c = c_budget(
+                alloc.model; 
+                b=b_grid[i], 
+                b_prime=b_grid[j], 
+                q=alloc.q[j]
+            )
             if c >= 0
-                v_tmp = v_bellman(model; c=c, v_prime=alloc.v[j])
+                v_tmp = v_bellman(alloc.model; c=c, v_prime=alloc.v[j])
                 if (first_valid) || (v_tmp > v_max)
                     v_max = v_tmp
                     b_pol = j
@@ -422,18 +442,18 @@ function iterate_v_and_pol!(alloc_new, model, alloc)
             end
         end
         alloc_new.v[i] = v_max
-        alloc_new.repay_prob[i] = get_repay_prob(model, v_max)
+        alloc_new.repay_prob[i] = get_repay_prob(alloc.model, v_max)
         alloc_new.b_pol_i[i] = b_pol
     end
 end
 
 
-function iterate_q!(alloc_new, model, alloc)
+function iterate_q!(alloc_new, alloc)
     # Uses the values and policies in `alloc_new` together with 
     # the price in `alloc` to update the price in `alloc_new`.
-    for i in eachindex(model.b_grid)
+    for i in eachindex(alloc.model.b_grid)
         alloc_new.q[i] = q_bellman(
-            model; 
+            alloc.model; 
             repay_prob=alloc_new.repay_prob[i], 
             q_prime=alloc.q[alloc_new.b_pol_i[i]]
         )
@@ -456,12 +476,13 @@ function iterate_backwards(model; tol=10.0^(-12), max_iters=10000)
         zero(model.b_grid),
         zero(model.b_grid),
         zero(model.b_grid),
-        ones(Int64, model.gridlen)
+        ones(Int64, model.gridlen),
+        model
     )
     counter = 1
     while true
-        iterate_v_and_pol!(a_new, model, a_old)
-        iterate_q!(a_new, model, a_old)
+        iterate_v_and_pol!(a_new, a_old)
+        iterate_q!(a_new, a_old)
         error = distance(a_new, a_old)
         if  error < tol
             println("Converged.")
@@ -481,10 +502,14 @@ function iterate_backwards(model; tol=10.0^(-12), max_iters=10000)
 end 
 
 
-function plot_pol(alloc, model; new_figure=true)
+function plot_pol(alloc; new_figure=true)
     if new_figure
         figure()
     end
-    plot(model.b_grid, model.b_grid[alloc.b_pol_i])
-    plot(model.b_grid[alloc.b_pol_i], model.b_grid[alloc.b_pol_i], "--")
+    plot(alloc.model.b_grid, alloc.model.b_grid[alloc.b_pol_i])
+    plot(
+        alloc.model.b_grid[alloc.b_pol_i], 
+        alloc.model.b_grid[alloc.b_pol_i], 
+        "--"
+    )
 end
