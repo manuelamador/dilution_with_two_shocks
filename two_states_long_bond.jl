@@ -45,7 +45,6 @@ end
 
 function Base.show(io::IO, model::TwoStatesModel)
     @unpack R, β, τH, τL, λ, δ, y, gridlen = model
-
     print(
         io, "R=", R, " β=", β, " τH=", τH, " τL=", τL, 
         " λ=", λ, " δ=", δ, " y=", y, " points=", gridlen
@@ -74,7 +73,6 @@ Alloc(model::TwoStatesModel) = Alloc(
 
 function Base.show(io::IO, alloc::Alloc)
     @unpack R, β, τH, τL, λ, δ, y, gridlen = alloc.model
-
     print(io, "Alloc for model: ")
     show(io, alloc.model)   
 end
@@ -97,7 +95,8 @@ function get_d_and_c_fun(gridlen::Int64)
 
         #    Auxiliary function
         function create_subtree!(
-            tree_list, parents_list, # modified in place
+            tree_list, 
+            parents_list, # modified in place
             array
         )
             length = size(array)[1]
@@ -259,10 +258,8 @@ function construct_path!(alloc, model, loc, v_at_loc, Δ)
         if iter == loc
             # starting point is stationary
             repay_prob = get_repay_prob(model, v_at_loc)
-            assign_values!(
-                alloc, iter, v_at_loc, q_ss(model, repay_prob), 
-                repay_prob, iter
-            )
+            q =  q_ss(model, repay_prob)
+            assign_values!(alloc, iter, v_at_loc, q, repay_prob, iter)
             prev_pol = iter
         else
             b = b_grid[iter]
@@ -292,18 +289,13 @@ function construct_path!(alloc, model, loc, v_at_loc, Δ)
                 repay_prob = get_repay_prob(model, v_max)
                 q = q_bellman(
                     model; 
-                    repay_prob=repay_prob, 
-                    q_prime=q_prime
+                    repay_prob=repay_prob, q_prime=q_prime
                 )
                 assign_values!(alloc, iter, v_max,  q, repay_prob, new_pol)
                 prev_pol = new_pol
-
                 # compute the value of staying put
-                v_stay_put = v_bellman(
-                    model; 
-                    c=c_budget(model; b=b, b_prime=b, q=q), 
-                    v_prime=v_max
-                )
+                c = c_budget(model; b=b, b_prime=b, q=q)
+                v_stay_put = v_bellman(model; c=c, v_prime=v_max)
                 if v_stay_put >  v_max 
                     # staying put is better than following prescription. 
                     valid_until = iter - Δ
@@ -320,9 +312,7 @@ end
 
 
 function construct_sav_path(
-    model, 
-    loc, 
-    v_at_loc; 
+    model, loc, v_at_loc; 
     alloc=Alloc(model)
 )
     construct_path!(alloc, model, loc, v_at_loc, 1)
@@ -330,9 +320,7 @@ end
 
 
 function construct_bor_path(
-    model, 
-    loc, 
-    v_at_loc; 
+    model, loc, v_at_loc; 
     alloc=Alloc(model)
 )
     construct_path!(alloc, model, loc, v_at_loc, -1)
@@ -345,7 +333,6 @@ function create_sav_eqm(model)
 
     safe_region = construct_bor_path(model, bS_low_loc, vH)
     @assert safe_region.valid_until == 1
-    
     crisis_saving = construct_sav_path(model, bS_low_loc, vH)
     crisis_borrowing = construct_bor_path(model, gridlen, vL)
     @assert crisis_saving.valid_until >= crisis_borrowing.valid_until
@@ -400,10 +387,8 @@ end
 function create_hyb_eqm(model)
     @unpack vL, gridlen, bS_low_loc, u, r, β, b_grid, y = model 
     bor = construct_bor_path(model, gridlen, vL)
-
     loc = bS_low_loc
     @assert  u(y - r * b_grid[loc]) / (1 - β) >= bor.alloc.v[loc]
-
     hybrid_loc = 0
     while true
         v = u(y - r * b_grid[loc]) / (1 - β)
@@ -415,13 +400,11 @@ function create_hyb_eqm(model)
         loc+=-1
     end
     @assert 0 < hybrid_loc < bS_low_loc
-
     safe = construct_bor_path(
         model, 
         hybrid_loc, 
         u(y - r * b_grid[hybrid_loc]) / (1 - β)
     )
-
     @views begin
         return Alloc(
             vcat(
@@ -460,7 +443,6 @@ function iterate_v_and_pol!(alloc_new, alloc)
     v_max = 0.0
     b_pol = 0
     prev_pol = 1
-    
     for iter in eachindex(b_grid)
         first_valid = true
         v_max = NaN
@@ -470,9 +452,7 @@ function iterate_v_and_pol!(alloc_new, alloc)
         for j in left_bound:right_bound
             c = c_budget(
                 alloc.model; 
-                b=b_grid[i], 
-                b_prime=b_grid[j], 
-                q=alloc.q[j]
+                b=b_grid[i], b_prime=b_grid[j], q=alloc.q[j]
             )
             if c >= 0
                 v_tmp = v_bellman(alloc.model; c=c, v_prime=alloc.v[j])
