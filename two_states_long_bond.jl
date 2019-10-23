@@ -390,6 +390,8 @@ function create_hyb_eqm(model)
     loc = findfirst(x -> x < vH, bor.alloc.v) - 1
     println(loc, " ", bS_low_loc)
     @assert  u(y - r * b_grid[loc]) / (1 - β) >= bor.alloc.v[loc]
+    # NOTE : this construction may not work when the hybrid is the only
+    # equilibrium, as the above condition will fail. 
     hybrid_loc = 0
     while true
         v = u(y - r * b_grid[loc]) / (1 - β)
@@ -401,6 +403,59 @@ function create_hyb_eqm(model)
         loc+=-1
     end
     @assert 0 < hybrid_loc < bS_low_loc
+    safe = construct_bor_path(
+        model, 
+        hybrid_loc, 
+        u(y - r * b_grid[hybrid_loc]) / (1 - β)
+    )
+    @views begin
+        return Alloc(
+            vcat(
+                safe.alloc.v[1:hybrid_loc],
+                bor.alloc.v[hybrid_loc + 1:end]
+            ),
+            vcat(
+                safe.alloc.q[1:hybrid_loc],
+                bor.alloc.q[hybrid_loc + 1:end]
+            ),
+            vcat(
+                safe.alloc.repay_prob[1:hybrid_loc],
+                bor.alloc.repay_prob[hybrid_loc + 1:end]
+            ),
+            vcat(
+                safe.alloc.b_pol_i[1:hybrid_loc],
+                bor.alloc.b_pol_i[hybrid_loc + 1:end]
+            ),
+            model
+        )
+    end   
+end 
+
+
+
+# Returns a hybrid equilibrium allocation. Throws error if it can't. 
+function create_hyb_eqm(model)
+    @unpack vL, vH, gridlen, bS_low_loc, u, r, β, b_grid, y = model 
+    bor = construct_bor_path(model, gridlen, vL)
+    loc = findfirst(x -> x < vH, bor.alloc.v) - 1
+    start_sign = sign(u(y - r * b_grid[loc]) / (1 - β) - bor.alloc.v[loc])
+    # get the sign at the first point in the safe region for the borroing eqm
+    hybrid_loc = 0
+    while true
+        v = u(y - r * b_grid[loc]) / (1 - β)
+        if sign(v - bor.alloc.v[loc]) != start_sign
+            # we switched signs -- so the borrowing equilibrium 
+            # and the stationary value at risk free prices have crossed. 
+            # This is a potential location for the hybrid stationary point
+            hybrid_loc = loc + ((start_sign == 1) ? 1 : 0) 
+                    # If we started with the borrowing above, then add one.
+                    # This seems to work numerically (sometimes).
+            break
+        end
+        (loc <= bor.valid_until) && break
+        loc+=-1
+    end
+    @assert 0 < hybrid_loc # check that we did found a hybrid alloc
     safe = construct_bor_path(
         model, 
         hybrid_loc, 
