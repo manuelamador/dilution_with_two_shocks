@@ -4,12 +4,12 @@ using PyPlot
 const _TOL = 10.0^(-12)
 const _MAX_ITERS = 10000 
 
+
 ########################################################################
 #
 # Structs and constructors
 # 
 #
-
 
 # `TwoStatesModel` contains the basic parameters of the model as well 
 # as some other values and the debt grid. 
@@ -53,7 +53,7 @@ end
 
 
 # `Alloc` stores an allocation together with a reference to the model that 
-# generated. 
+# generated it. 
 struct Alloc{P}
     v::Array{Float64, 1}
     q::Array{Float64, 1}
@@ -216,6 +216,7 @@ function get_repay_prob(model, v)
     @unpack vH, vL, λ = model
     h = if (v >= vH - _TOL) 1.0 else 0.0 end 
     l = if (v >= vL - _TOL) 1.0 else 0.0 end
+    # Do we need _TOL here? 
     return λ * h + (1 - λ) * l
 end
 
@@ -327,6 +328,12 @@ function construct_bor_path(
 end 
 
 
+########################################################################
+#
+# Functions that construct the equilibrium allocations
+#
+
+
 # Return a saving equilibrium allocation. Throws error if it can't. 
 function create_sav_eqm(model)
     @unpack bS_low_loc, vH, vL, gridlen = model
@@ -430,7 +437,6 @@ function create_hyb_eqm(model)
         )
     end   
 end 
-
 
 
 # Returns a hybrid equilibrium allocation. Throws error if it can't. 
