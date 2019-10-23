@@ -334,7 +334,15 @@ end
 #
 
 
-# Return a saving equilibrium allocation. Throws error if it can't. 
+# Returns a borrowing equilibrium allocation. Throws error if it can't. 
+function create_bor_eqm(model)
+    bor_eqm = construct_bor_path(model, model.gridlen, model.vL)
+    @assert bor_eqm.valid_until == 1 
+    return bor_eqm.alloc
+end
+
+
+# Returns a saving equilibrium allocation. Throws error if it can't. 
 function create_sav_eqm(model)
     @unpack bS_low_loc, vH, vL, gridlen = model
 
@@ -380,15 +388,6 @@ function create_sav_eqm(model)
         model
     )
 end
-
-
-# Returns a borrowing equilibrium allocation. Throws error if it can't. 
-function create_bor_eqm(model)
-    bor_eqm = construct_bor_path(model, model.gridlen, model.vL)
-    @assert bor_eqm.valid_until == 1 
-    return bor_eqm.alloc
-end
-
 
 
 # Returns a hybrid equilibrium allocation. Throws error if it can't. 
