@@ -39,6 +39,7 @@ const _MAX_ITERS = 10000
     )
     gridlen::Int64 = length(b_grid)
     bS_low_loc::Int64 = findfirst(x -> (x == bS_low), b_grid)
+    bB_high_loc::Int64 = findfirst(x -> (x == bB_high), b_grid)
     d_and_c_fun::F3 = get_d_and_c_fun(gridlen)
 end
 
@@ -165,18 +166,28 @@ end
 
 
 function create_b_grid(;bmin=0.0, bmax, bsaving, npoints_approx)
-    b_grid = collect(range(bmin, stop=bmax, length=npoints_approx))
-    if !(bsaving in b_grid) 
-        loc = findfirst(x -> (x >= bsaving), b_grid)
-        insert!(b_grid, loc, bsaving)
+    if bmax > bsaving
+        b_grid = collect(range(bmin, stop=bmax, length=npoints_approx))
+        if !(bsaving in b_grid) 
+            loc = findfirst(x -> (x >= bsaving), b_grid)
+            insert!(b_grid, loc, bsaving)
+        end
+    else 
+        b_grid = collect(range(bmin, stop=bsaving, length=npoints_approx))
+        if !(bmax in b_grid) 
+            loc = findfirst(x -> (x >= bmax), b_grid)
+            insert!(b_grid, loc, bmax)
+        end
     end
     return b_grid
 end
+
 
 ########################################################################
 #
 # Helper functions on prices, values, repayments and consumption
 #
+
 
 function q_ss(model, repay_prob)
     @unpack R, r, δ = model
@@ -336,7 +347,7 @@ end
 
 # Returns a borrowing equilibrium allocation. Throws error if it can't. 
 function create_bor_eqm(model)
-    bor_eqm = construct_bor_path(model, model.gridlen, model.vL)
+    bor_eqm = construct_bor_path(model, model.bB_high_loc, model.vL)
     @assert bor_eqm.valid_until == 1 
     return bor_eqm.alloc
 end
@@ -539,6 +550,7 @@ function iterate_backwards(model; tol=10.0^(-12), max_iters=_MAX_ITERS)
     return a_new
 end 
 
+
 ########################################################################
 #
 # Plotting functions 
@@ -554,6 +566,8 @@ function plot_pol(alloc; new_figure=true)
         alloc.model.b_grid[alloc.b_pol_i], 
         "--"
     )
-    loc= findfirst(x -> x < alloc.model.vH, alloc.v) - 1
-    axvline(alloc.model.b_grid[loc]; lw=1, color="gray")
+    loc= findfirst(x -> x < alloc.model.vH, alloc.v)
+    if loc != nothing 
+        axvline(alloc.model.b_grid[loc - 1]; lw=1, color="gray")
+    end
 end
