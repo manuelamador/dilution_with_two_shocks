@@ -1,5 +1,7 @@
 using Parameters
-using PyPlot
+using Plots
+
+gr()
 
 const _TOL = 10.0^(-12)
 const _MAX_ITERS = 10000 
@@ -461,7 +463,8 @@ end
 
 # Uses divide and conquer to iterate the value and policy functions. 
 function iterate_v_and_pol!(alloc_new, alloc)
-    # Iterate the value function and update the 
+    # Iterate the value function and update alloc_new with new values 
+    # and policies
     @unpack b_grid, d_and_c_fun = alloc.model
     v_tmp = 0.0
     v_max = 0.0
@@ -542,7 +545,7 @@ function iterate_backwards(model; tol=10.0^(-12), max_iters=_MAX_ITERS)
             println("Iter ", counter, ". Distance=", error) 
         end 
         if counter > max_iters 
-            println("Did not converged. Distance=", error)
+            println("Did not converge. Distance=", error)
             break
         end
         a_new, a_old = a_old, a_new
@@ -556,18 +559,19 @@ end
 # Plotting functions 
 #
 
-function plot_pol(alloc; new_figure=true)
-    if new_figure
-        figure()
+function plot_pol(alloc; new_figure=true, base_plot=nothing)
+    if base_plot === nothing
+        p = plot(alloc.model.b_grid, alloc.model.b_grid[alloc.b_pol_i], 
+                leg=false, w=2)
+    else 
+        p = plot!(base_plot, alloc.model.b_grid, alloc.model.b_grid[alloc.b_pol_i], 
+                leg=false, w=2)
     end
-    plot(alloc.model.b_grid, alloc.model.b_grid[alloc.b_pol_i])
-    plot(
-        alloc.model.b_grid[alloc.b_pol_i], 
-        alloc.model.b_grid[alloc.b_pol_i], 
-        "--"
-    )
+
+    plot!(p, alloc.model.b_grid, alloc.model.b_grid, line=:dash)
     loc= findfirst(x -> x < alloc.model.vH, alloc.v)
     if loc != nothing 
-        axvline(alloc.model.b_grid[loc - 1]; lw=1, color="gray")
+        vline!(p, [alloc.model.b_grid[loc - 1]]; w=1, color="gray")
     end
+    return p
 end
