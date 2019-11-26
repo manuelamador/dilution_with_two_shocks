@@ -17,9 +17,9 @@ const _MAX_ITERS = 10000
 # as some other values and the debt grid. 
 @with_kw struct TwoStatesModel{F1, F2, F3} @deftype Float64
     R = 1.05 
-    β = 0.91 
-    τH = 0.15
-    τL = 0.08
+    β = 0.92 
+    τH = 0.14
+    τL = 0.06
     λ = 0.025
     u::F1 = (x -> log(x))
     u_inv::F2 = (x -> exp(x))
