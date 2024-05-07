@@ -1,7 +1,4 @@
-using Parameters
 using Plots
-
-gr()
 
 const _TOL = 10.0^(-12)
 const _MAX_ITERS = 10000 
@@ -15,25 +12,25 @@ const _MAX_ITERS = 10000
 
 # `TwoStatesModel` contains the basic parameters of the model as well 
 # as some other values and the debt grid. 
-@with_kw struct TwoStatesModel{F1, F2, F3} @deftype Float64
-    R = 1.05 
-    β = 0.92 
-    τH = 0.14
-    τL = 0.06
-    λ = 0.025
+Base.@kwdef struct TwoStatesModel{F1, F2, F3, R1}
+    R::R1 = 1.05 
+    β::R1 = 0.92 
+    τH::R1 = 0.14
+    τL::R1 = 0.06
+    λ::R1 = 0.025
     u::F1 = (x -> log(x))
     u_inv::F2 = (x -> exp(x))
-    δ = 0.25
-    y = 1.0
+    δ::R1 = 0.25
+    y::R1 = 1.0
     npoints_approx::Int64 = 10000
     # Generated values 
-    r = R - 1.0
-    vH = u((1 - τL) * y) / (1 - β)
-    vL = u((1 - τH) * y) / (1 - β)
-    q̅ = 1.0
-    q̲ = get_q̲(r=r, δ=δ, λ=λ)
-    bS_low = get_bS_low(y=y, u_inv=u_inv, β=β, r=r, vH=vH)
-    bB_high = get_bB_high(
+    r::R1 = R - 1.0
+    vH::R1 = u((1 - τL) * y) / (1 - β)
+    vL::R1 = u((1 - τH) * y) / (1 - β)
+    q̅::R1 = 1.0
+    q̲::R1 = get_q̲(r=r, δ=δ, λ=λ)
+    bS_low::R1 = get_bS_low(y=y, u_inv=u_inv, β=β, r=r, vH=vH)
+    bB_high::R1 = get_bB_high(
         y=y, u_inv=u_inv, β=β, r=r, λ=λ, δ=δ, vH=vH, vL=vL
     )
     b_grid::Array{Float64, 1} = create_b_grid(
@@ -47,7 +44,7 @@ end
 
 
 function Base.show(io::IO, model::TwoStatesModel)
-    @unpack R, β, τH, τL, λ, δ, y, gridlen = model
+    (; R, β, τH, τL, λ, δ, y, gridlen) = model
     print(
         io, "R=", R, " β=", β, " τH=", τH, " τL=", τL, 
         " λ=", λ, " δ=", δ, " y=", y, " points=", gridlen
@@ -75,7 +72,7 @@ Alloc(model::TwoStatesModel) = Alloc(
 )
 
 function Base.show(io::IO, alloc::Alloc)
-    @unpack R, β, τH, τL, λ, δ, y, gridlen = alloc.model
+    (; R, β, τH, τL, λ, δ, y, gridlen) = alloc.model
     print(io, "Alloc for model: ")
     show(io, alloc.model)   
 end
@@ -192,14 +189,14 @@ end
 
 
 function q_ss(model, repay_prob)
-    @unpack R, r, δ = model
+    (; R, r, δ) = model
     q_ss = repay_prob * (r + δ) / (R -  repay_prob * (1 - δ)) 
     return q_ss
 end
 
 
 function v_ss(model, b, q, repay_prob)
-    @unpack y, β, R, r, δ, u, vH = model
+    (; y, β, R, r, δ, u, vH) = model
     λ1 = 1 - repay_prob
     return (u(y - (r + δ *(1 - q)) * b) +
             β * λ1 * vH) / (1 - β * (1 - λ1))
@@ -207,26 +204,26 @@ end
 
 
 function c_budget(model; b, b_prime, q)
-    @unpack y, δ, r = model
+    (; y, δ, r) = model
     return y - (r + δ) * b + q * (b_prime - (1 - δ) * b)
 end
 
 
 function v_bellman(model; c, v_prime)
-    @unpack u, β, λ, vH, vL = model 
+    (; u, β, λ, vH, vL) = model 
     return u(c) + β * λ * max(v_prime, vH) + 
         β * (1 - λ) * max(v_prime, vL)
 end
 
 
 function q_bellman(model; repay_prob, q_prime)
-    @unpack R, r, δ = model
+    (; R, r, δ) = model
     return repay_prob * ((r + δ) + (1 - δ) * q_prime) / R
 end 
 
 
 function get_repay_prob(model, v)
-    @unpack vH, vL, λ = model
+    (; vH, vL, λ) = model
     h = if (v >= vH - _TOL) 1.0 else 0.0 end 
     l = if (v >= vL - _TOL) 1.0 else 0.0 end
     # Do we need _TOL here? 
@@ -256,7 +253,7 @@ function construct_path!(alloc, model, loc, v_at_loc, Δ)
         alloc.b_pol_i[iter] = b_prime
     end
 
-    @unpack b_grid, λ, vL, vH, gridlen = model
+    (; b_grid, λ, vL, vH, gridlen) = model
     # Δ = 1 is the saving path 
     # Δ = -1 is the borrowing path 
     @assert Δ in [-1, 1]
@@ -357,7 +354,7 @@ end
 
 # Returns a saving equilibrium allocation. Throws error if it can't. 
 function create_sav_eqm(model)
-    @unpack bS_low_loc, vH, vL, gridlen = model
+    (; bS_low_loc, vH, vL, gridlen) = model
 
     safe_region = construct_bor_path(model, bS_low_loc, vH)
     @assert safe_region.valid_until == 1
@@ -405,7 +402,7 @@ end
 
 # Returns a hybrid equilibrium allocation. Throws error if it can't. 
 function create_hyb_eqm(model)
-    @unpack vL, vH, gridlen, bS_low_loc, u, r, β, b_grid, y = model 
+    (; vL, vH, gridlen, bS_low_loc, u, r, β, b_grid, y) = model 
     bor = construct_bor_path(model, gridlen, vL)
     loc = findfirst(x -> x < vH, bor.alloc.v) - 1
     start_sign = sign(u(y - r * b_grid[loc]) / (1 - β) - bor.alloc.v[loc])
@@ -465,7 +462,7 @@ end
 function iterate_v_and_pol!(alloc_new, alloc)
     # Iterate the value function and update alloc_new with new values 
     # and policies
-    @unpack b_grid, d_and_c_fun = alloc.model
+    (; b_grid, d_and_c_fun) = alloc.model
     v_tmp = 0.0
     v_max = 0.0
     b_pol = 0
